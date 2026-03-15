@@ -153,13 +153,22 @@ if st.session_state.workflow_state == "review" and st.session_state.final_report
             
             orig, updated = get_diff(file_path)
             
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("**Original Baseline (Backup)**")
-                st.code(orig, language="python" if file_path.endswith(".py") else "javascript")
-            with col2:
-                st.markdown("**Agent Refactored Output**")
-                st.code(updated, language="python" if file_path.endswith(".py") else "javascript")
+            # Generate Unified Diff
+            diff = list(difflib.unified_diff(
+                orig.splitlines(),
+                updated.splitlines(),
+                fromfile=f'Baseline ({file_path})',
+                tofile=f'Refactored ({file_path})',
+                lineterm=''
+            ))
+            diff_text = '\n'.join(diff)
+            
+            st.markdown("**📄 Unified Git-Style Diff**")
+            st.caption("Lines starting with `-` were removed, lines with `+` were added by the Agent.")
+            if diff_text:
+                st.code(diff_text, language="diff", line_numbers=True)
+            else:
+                st.info("No content changes detected in the file.")
                 
             if not is_rejected:
                 if st.button(f"Reject Fix for {file_path}", key=f"reject_{file_path}"):
