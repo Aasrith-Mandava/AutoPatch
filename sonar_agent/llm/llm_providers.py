@@ -55,15 +55,23 @@ class LLMProvider(ABC):
                 if result:
                     self.last_model_used = model
                     return result
+            except QuotaExhaustedError:
+                raise
             except ModelRateLimitError as exc:
                 self._exhausted_models.add(model)
                 last_error = exc
                 continue
-            except QuotaExhaustedError:
-                raise
             except Exception as exc:
-                last_error = exc
-                continue
+                msg = str(exc)
+                if _is_quota_exhausted_error(msg):
+                    raise QuotaExhaustedError(f"{self.name}: {msg}")
+                elif _is_rate_limit_error(msg):
+                    self._exhausted_models.add(model)
+                    last_error = ModelRateLimitError(f"{self.name}/{model}: {msg}")
+                    continue
+                else:
+                    last_error = exc
+                    continue
 
         if last_error:
             raise QuotaExhaustedError(f"{self.name}: all models exhausted — {last_error}")
@@ -87,13 +95,19 @@ class ModelRateLimitError(Exception):
     pass
 
 
-def _is_quota_error(error_msg: str) -> bool:
-    """Check if an error message indicates a rate/quota limit."""
+def _is_quota_exhausted_error(error_msg: str) -> bool:
+    """Check if an error message indicates an account-level quota/billing exhaustion."""
     keywords = [
-        "quota", "rate limit", "rate_limit", "resource exhausted",
-        "429", "too many requests", "resourceexhausted",
-        "tokens per minute", "requests per minute",
-        "insufficient_quota", "rate_limit_exceeded",
+        "quota", "insufficient_quota", "resource exhausted", "resourceexhausted", "billing"
+    ]
+    msg = error_msg.lower()
+    return any(kw in msg for kw in keywords)
+
+def _is_rate_limit_error(error_msg: str) -> bool:
+    """Check if an error message indicates a model-level rate limit."""
+    keywords = [
+        "rate limit", "rate_limit", "429", "too many requests",
+        "tokens per minute", "requests per minute"
     ]
     msg = error_msg.lower()
     return any(kw in msg for kw in keywords)
@@ -118,27 +132,20 @@ class GeminiProvider(LLMProvider):
         return self._has_key(config.GEMINI_API_KEY)
 
     def _call_model(self, model: str, system_prompt: str, user_prompt: str) -> Optional[str]:
-        try:
-            import google.generativeai as genai
+        from google import genai
+        from google.genai import types
 
-            genai.configure(api_key=config.GEMINI_API_KEY)
-            llm = genai.GenerativeModel(
-                model_name=model,
+        client = genai.Client(api_key=config.GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model=model,
+            contents=user_prompt,
+            config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
-            )
-            response = llm.generate_content(
-                user_prompt,
-                generation_config=genai.GenerationConfig(
-                    temperature=0.0,
-                    max_output_tokens=8192,
-                ),
-            )
-            return response.text if response.text else None
-
-        except Exception as exc:
-            if _is_quota_error(str(exc)):
-                raise ModelRateLimitError(f"Gemini/{model}: {exc}")
-            raise
+                temperature=0.0,
+                max_output_tokens=8192,
+            ),
+        )
+        return response.text if response.text else None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -161,26 +168,20 @@ class OpenAIProvider(LLMProvider):
         return self._has_key(config.OPENAI_API_KEY)
 
     def _call_model(self, model: str, system_prompt: str, user_prompt: str) -> Optional[str]:
-        try:
-            from openai import OpenAI
+        from openai import OpenAI
 
-            client = OpenAI(api_key=config.OPENAI_API_KEY)
-            response = client.chat.completions.create(
-                model=model,
-                temperature=0.0,
-                max_tokens=8192,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
-            content = response.choices[0].message.content
-            return content if content else None
-
-        except Exception as exc:
-            if _is_quota_error(str(exc)):
-                raise ModelRateLimitError(f"OpenAI/{model}: {exc}")
-            raise
+        client = OpenAI(api_key=config.OPENAI_API_KEY)
+        response = client.chat.completions.create(
+            model=model,
+            temperature=0.0,
+            max_tokens=8192,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        content = response.choices[0].message.content
+        return content if content else None
 
 
 
@@ -203,26 +204,20 @@ class GroqProvider(LLMProvider):
         return self._has_key(config.GROQ_API_KEY)
 
     def _call_model(self, model: str, system_prompt: str, user_prompt: str) -> Optional[str]:
-        try:
-            from groq import Groq
+        from groq import Groq
 
-            client = Groq(api_key=config.GROQ_API_KEY)
-            response = client.chat.completions.create(
-                model=model,
-                temperature=0.0,
-                max_tokens=8192,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
-            content = response.choices[0].message.content
-            return content if content else None
-
-        except Exception as exc:
-            if _is_quota_error(str(exc)):
-                raise ModelRateLimitError(f"Groq/{model}: {exc}")
-            raise
+        client = Groq(api_key=config.GROQ_API_KEY)
+        response = client.chat.completions.create(
+            model=model,
+            temperature=0.0,
+            max_tokens=8192,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        content = response.choices[0].message.content
+        return content if content else None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -230,9 +225,9 @@ class GroqProvider(LLMProvider):
 # ═══════════════════════════════════════════════════════════════════════════
 
 ALL_PROVIDERS: list[type[LLMProvider]] = [
+    GroqProvider,
     GeminiProvider,
     OpenAIProvider,
-    GroqProvider,
 ]
 
 # Total: 19 model variants across 3 providers
