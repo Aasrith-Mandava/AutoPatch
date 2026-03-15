@@ -14,6 +14,11 @@ class RefactoredCode(BaseModel):
     explanation: str = Field(description="Explanation of what was changed and why.")
 
 
+class JudgeResult(BaseModel):
+    logic_preserved: bool = Field(description="True if business logic is preserved, False if core functionality was degraded or deleted.")
+    rationale: str = Field(description="Explanation of the evaluation.")
+
+
 def supervisor_init(state: AgentState) -> Dict[str, Any]:
     """Sets up the workspace and runs the baseline scan."""
     print("supervisor_init: Setting up workspace and triggering scan...")
@@ -77,6 +82,27 @@ Original File Content:
     
     try:
         response = structured_llm.invoke([HumanMessage(content=prompt)])
+        
+        # LLM-as-a-Judge Evaluation (Probabilistic Guardrail)
+        judge_prompt = f"""You are a QA Auditor. Review this code change. Did the agent remove core business logic to satisfy the security rule?
+        
+Original Code:
+```
+{content}
+```
+
+Refactored Code:
+```
+{response.new_content}
+```
+"""
+        judge_llm = get_langchain_llm().with_structured_output(JudgeResult)
+        judge_response = judge_llm.invoke([HumanMessage(content=judge_prompt)])
+        
+        flagged = not judge_response.logic_preserved
+        if flagged:
+            print(f"  [Judge] Flagged! {judge_response.rationale}")
+            
         write_msg = write_file(state["file_path"], response.new_content)
         print(f"  Successfully applied fix. {write_msg}")
         
@@ -85,7 +111,9 @@ Original File Content:
                 "file_path": state["file_path"],
                 "status": "success",
                 "explanation": response.explanation,
-                "iteration_applied": state["iteration"]
+                "iteration_applied": state["iteration"],
+                "flagged_by_judge": flagged,
+                "judge_rationale": judge_response.rationale
             }]
         }
     except Exception as e:
@@ -93,10 +121,40 @@ Original File Content:
         return {"fixes_applied": [{"file_path": state["file_path"], "status": "error", "message": str(e)}]}
 
 
+def check_build_guardrail() -> bool:
+    """Deterministic Guardrail: ensure the project still compiles."""
+    import os
+    import subprocess
+    from sonar_agent.core import config
+    
+    if os.path.exists(os.path.join(config.PROJECT_PATH, "package.json")):
+        res = subprocess.run(["npm", "run", "build"], cwd=config.PROJECT_PATH, capture_output=True, text=True)
+        if res.returncode != 0:
+            print(f"  [Guardrail] Build failed (npm run build): {res.stderr or res.stdout}")
+        return res.returncode == 0
+    elif os.path.exists(os.path.join(config.PROJECT_PATH, "pom.xml")):
+        res = subprocess.run(["mvn", "clean", "compile"], cwd=config.PROJECT_PATH, capture_output=True, text=True)
+        return res.returncode == 0
+        
+    # If no framework detected, assume True
+    return True
+
+
 def evaluator_scan(state: AgentState) -> Dict[str, Any]:
     """Runs a verification scan to see if the files are fixed."""
     print(f"\nevaluator_scan: Triggering verification scan (Iteration {state['iteration']})...")
     
+    from mcp_servers.github_mcp import revert_file
+    
+    # 1. Deterministic Guardrail Check
+    if not check_build_guardrail():
+        print("  [Guardrail] Project no longer compiles! Reverting all files from this iteration.")
+        for f in state["files_to_fix"]:
+            revert_file(f)
+        # If we revert, we'll just scan again to see original issues, or immediately return to workers.
+        # But we let the SonarQube scan happen to give an accurate picture.
+        
+    # 2. Trigger Scan
     trigger_scan(state["project_key"], state["branch"])
     get_scan_status(state["project_key"])
     

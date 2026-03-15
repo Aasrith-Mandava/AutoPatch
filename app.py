@@ -115,8 +115,21 @@ if st.session_state.workflow_state == "review" and st.session_state.final_report
         file_path = fix["file_path"]
         is_rejected = file_path in st.session_state.rejections
         
-        with st.expander(f"Review Fix: {file_path} {'❌ (Rejected)' if is_rejected else '✅ (Pending Approval)'}", expanded=not is_rejected):
+        flagged = fix.get("flagged_by_judge", False)
+        
+        if is_rejected:
+            label_suffix = "❌ (Rejected)"
+        elif flagged:
+            label_suffix = "⚠️ (Flagged by AI Judge)"
+        else:
+            label_suffix = "✅ (Pending Approval)"
+            
+        # We auto-expand flagged items or pending items
+        with st.expander(f"Review Fix: {file_path} {label_suffix}", expanded=(not is_rejected) or flagged):
             st.markdown(f"**Agent's Rationale:** {fix.get('explanation', 'Fixed SonarQube rules.')}")
+            
+            if flagged:
+                st.warning(f"**Judge Warning:** {fix.get('judge_rationale', 'Core business logic may have been altered.')}")
             
             orig, updated = get_diff(file_path)
             
@@ -135,7 +148,7 @@ if st.session_state.workflow_state == "review" and st.session_state.final_report
                     st.session_state.rejections.add(file_path)
                     st.rerun()
             else:
-                st.warning(f"This fix was rejected and reverted. The file is back to baseline.")
+                st.error(f"This fix was rejected and reverted. The file is back to baseline.")
                 
     st.divider()
     
