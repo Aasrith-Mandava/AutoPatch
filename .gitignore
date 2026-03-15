@@ -1,0 +1,16 @@
+# Environment
+.env
+__pycache__/
+*.pyc
+*.pyo
+
+# Backups created by the agent
+.sonar-backups/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
