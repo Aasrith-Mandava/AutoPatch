@@ -3,6 +3,7 @@ import time
 from pathlib import Path
 import os
 import difflib
+import requests
 
 from sonar_agent.core import config
 from sonar_agent.workflow.graph import build_agent_graph
@@ -48,7 +49,36 @@ with st.sidebar:
     
     project_key = st.text_input("SonarQube Project Key", value=config.SONAR_PROJECT_KEY, help="The exact project key from your Sonar dashboard.")
     branch = st.text_input("Target Branch", value="agent-sec-fixes", help="The git branch the agent will checkout and commit onto.")
-    repo_url = st.text_input("Repo URL", value="", help="The remote repository URL to clone and push against.")
+    
+    st.markdown("---")
+    st.subheader("Target Repository")
+    github_user = st.text_input("GitHub Username", value="", placeholder="e.g. Aasrith-Mandava")
+    
+    repo_url = ""
+    if github_user:
+        # Fetch public repos for the given user
+        try:
+            response = requests.get(f"https://api.github.com/users/{github_user}/repos?sort=updated&per_page=100")
+            if response.status_code == 200:
+                repos = response.json()
+                if repos:
+                    repo_names = [repo["name"] for repo in repos]
+                    # Create a selectbox with the repo names
+                    selected_repo_name = st.selectbox("Select a Repository", repo_names)
+                    
+                    # Find the clone_url for the selected repo
+                    selected_repo = next(r for r in repos if r["name"] == selected_repo_name)
+                    repo_url = selected_repo["html_url"] + ".git"
+                    
+                    st.caption(f"Target URL: `{repo_url}`")
+                else:
+                    st.warning("No public repositories found for this user.")
+            else:
+                st.error("Could not fetch repositories (User not found or API limit reached).")
+        except Exception as e:
+            st.error(f"Error connecting to GitHub: {e}")
+    else:
+        st.info("Enter a GitHub Username to select a repository.")
     
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🚀 Start Agent Workflow", type="primary", use_container_width=True):
