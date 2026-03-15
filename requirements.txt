@@ -3,6 +3,11 @@ requests>=2.31.0
 python-dotenv>=1.0.0
 rich>=13.7.0
 
+# Agentic Architecture & Tools
+fastmcp>=0.4.0
+langgraph>=0.0.30
+langchain-anthropic>=0.1.0
+
 # LLM providers (install the ones you want to use)
 google-genai>=0.1.0          # Gemini — 6 model variants
 openai>=1.0.0                # OpenAI — 7 model variants (optional)

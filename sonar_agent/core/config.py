@@ -36,6 +36,7 @@ BACKUP_DIR: str = os.getenv("BACKUP_DIR", ".sonar-backups")
 # ── LLM providers (at least one API key required) ───────────────────────
 # Each provider has a built-in list of model variants to try.
 # You only need to supply the API key — models are handled automatically.
+ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
@@ -56,9 +57,9 @@ def validate() -> None:
         missing.append("PROJECT_PATH")
 
     # At least one LLM provider must be configured
-    llm_keys = [GEMINI_API_KEY, OPENAI_API_KEY, GROQ_API_KEY]
+    llm_keys = [ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY, GROQ_API_KEY]
     if not any(_has_key(k) for k in llm_keys):
-        missing.append("At least one LLM API key (GEMINI / OPENAI / GROQ)")
+        missing.append("At least one LLM API key (ANTHROPIC / GEMINI / OPENAI / GROQ)")
 
     if missing:
         print(f"[!] Missing required config values: {', '.join(missing)}")
