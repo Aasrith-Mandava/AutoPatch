@@ -37,31 +37,30 @@ def get_diff(file_path: str) -> tuple[str, str]:
     return original_content, current_content
 
 
-st.title("Lumina: Autonomous Code Correction Agent")
-st.markdown("This Elicitation UI reviews changes proposed by the LangGraph Swarm before committing to your branch.")
+st.title("✨ Lumina: Code Correction Agent")
+st.markdown("This Elicitation UI reviews changes proposed by the **LangGraph Swarm** before committing them safely into your branch.")
+st.divider()
 
 # Sidebar setup
 with st.sidebar:
-    st.header("Graph Configuration")
-    project_key = st.text_input("SonarQube Project Key", value=config.SONAR_PROJECT_KEY)
-    branch = st.text_input("Target Branch", value="agent-sec-fixes")
-    repo_url = st.text_input("Repo URL", value="local")
+    st.header("⚙️ Graph Configuration")
+    st.markdown("Provide your project settings below to trigger the swarm:")
     
-    if st.button("Start Agent Workflow", type="primary"):
+    project_key = st.text_input("SonarQube Project Key", value=config.SONAR_PROJECT_KEY, help="The exact project key from your Sonar dashboard.")
+    branch = st.text_input("Target Branch", value="agent-sec-fixes", help="The git branch the agent will checkout and commit onto.")
+    repo_url = st.text_input("Repo URL", value="local", help="Leave as 'local' to use the configured PROJECT_PATH.")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("🚀 Start Agent Workflow", type="primary", use_container_width=True):
         if st.session_state.workflow_state != "running":
             st.session_state.workflow_state = "running"
             st.rerun()
 
 # ── Runner ──
 if st.session_state.workflow_state == "running":
-    st.info("Agent Swarm is initializing. Running baseline scan and evaluating repairs...")
-    
-    # Progress placeholder
-    progress_bar = st.progress(0)
-    status_text = st.empty()
+    st.info("🤖 Agent Swarm initialized. Evaluating repository anomalies...")
     
     graph = build_agent_graph()
-    
     initial_state = {
         "project_key": project_key,
         "branch": branch,
@@ -72,21 +71,31 @@ if st.session_state.workflow_state == "running":
     }
     
     try:
-        # Stream the graph execution to update the UI
-        for s in graph.stream(initial_state, stream_mode="updates"):
-            for node_name, node_state in s.items():
-                status_text.text(f"Currently executing phase: {node_name}...")
-                
-                # Update progress bar heuristically based on node flow
-                if node_name == "supervisor_init":
-                    progress_bar.progress(25)
-                elif node_name == "worker_refactor":
-                    progress_bar.progress(50)
-                elif node_name == "evaluator_scan":
-                    progress_bar.progress(75)
-                elif node_name == "generate_report":
-                    progress_bar.progress(100)
-                    st.session_state.final_report = node_state.get("final_report")
+        with st.status("Swarm Execution Progress...", expanded=True) as status:
+            progress_bar = st.progress(0)
+            
+            # Stream the graph execution to update the UI
+            for s in graph.stream(initial_state, stream_mode="updates"):
+                for node_name, node_state in s.items():
+                    if node_name == "supervisor_init":
+                        status.update(label="Scanning Baseline...", state="running")
+                        st.write("✅ Baseline gathered. Launching workers...")
+                        progress_bar.progress(25)
+                    elif node_name == "worker_refactor":
+                        status.update(label="Workers Refactoring Code...", state="running")
+                        st.write("✅ All parallel workers successfully applied fixes.")
+                        progress_bar.progress(50)
+                    elif node_name == "evaluator_scan":
+                        status.update(label="Critic Evaluation Scan...", state="running")
+                        st.write("✅ Verification scan complete.")
+                        progress_bar.progress(75)
+                    elif node_name == "generate_report":
+                        st.write("📄 Generating Contractor Report...")
+                        progress_bar.progress(100)
+                        st.session_state.final_report = node_state.get("final_report")
+                        
+            status.update(label="Agent Swarm finished evaluating!", state="complete", expanded=False)
+
                     
         st.session_state.workflow_state = "review"
         st.rerun()
@@ -100,16 +109,27 @@ if st.session_state.workflow_state == "running":
 if st.session_state.workflow_state == "review" and st.session_state.final_report:
     report = st.session_state.final_report
     
-    st.success(f"Graph execution paused. Agent completed repairs on {report['successful_fixes']} file(s).")
-    st.markdown("### Proposed Fixes (Contract Negotiation)")
+    st.success("Graph execution paused. Please review the Contract below.")
+    st.markdown("### 📊 Scan Results & Contract Negotiation")
+    
+    # Render High-level Metrics
+    m1, m2, m3 = st.columns(3)
+    with m1:
+        st.metric("Total Fixes Attempted", report.get("total_fixes_attempted", 0))
+    with m2:
+        st.metric("Successful Fixes", report.get("successful_fixes", 0), delta=f"+{report.get('successful_fixes', 0)} accepted", delta_color="normal")
+    with m3:
+        st.metric("Remaining Open Issues", report.get("remaining_issues", 0), delta="needs attention", delta_color="off")
+        
+    st.markdown("<br>", unsafe_allow_html=True)
     
     if "rejections" not in st.session_state:
         st.session_state.rejections = set()
     
-    fixes = [f for f in report["fixes"] if f.get("status") == "success"]
+    fixes = [f for f in report.get("fixes", []) if f.get("status") == "success"]
     
     if not fixes:
-        st.info("No files required fixing, or the agent could not fix the issues.")
+        st.info("No files required fixing, or the agent could not resolve the issues without violating constraints.")
         
     for fix in fixes:
         file_path = fix["file_path"]
