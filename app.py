@@ -123,6 +123,17 @@ if st.session_state.workflow_state == "review" and st.session_state.final_report
         
     st.markdown("<br>", unsafe_allow_html=True)
     
+    # Explicitly list the originally fetched issues for transparency
+    original_issues = report.get("original_issues_fetched", [])
+    if original_issues:
+        with st.expander(f"📥 Original Anomalies Detected ({len(original_issues)})", expanded=False):
+            st.markdown("Here is the exact list of originally fetched issues that the Supervisor identified **before** launching the Worker swarm:")
+            for idx, issue in enumerate(original_issues):
+                st.markdown(f"**{idx+1}. `{issue.get('file_path', 'Unknown')}`** (Line {issue.get('line', 'N/A')})")
+                st.caption(f"↳ {issue.get('message', 'No message')} `[{issue.get('rule', 'N/A')}]`")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+    
     if "rejections" not in st.session_state:
         st.session_state.rejections = set()
     

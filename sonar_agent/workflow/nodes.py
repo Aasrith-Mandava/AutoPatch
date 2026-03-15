@@ -44,6 +44,7 @@ def supervisor_init(state: AgentState) -> Dict[str, Any]:
     
     return {
         "issues": issues,
+        "baseline_issues": issues,
         "files_to_fix": files_to_fix,
         "iteration": 1,
         "fixes_applied": []
@@ -186,7 +187,8 @@ def generate_report(state: AgentState) -> Dict[str, Any]:
         "total_fixes_attempted": len(state["fixes_applied"]),
         "successful_fixes": len(success_fixes),
         "fixes": state["fixes_applied"],
-        "remaining_issues": len(state["issues"])
+        "remaining_issues": len(state["issues"]),
+        "original_issues_fetched": state.get("baseline_issues", [])
     }
     
     return {"final_report": report}
