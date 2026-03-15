@@ -81,14 +81,61 @@ with st.sidebar:
         st.info("Enter a GitHub Username to select a repository.")
     
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("🚀 Start Agent Workflow", type="primary", use_container_width=True):
-        if st.session_state.workflow_state != "running":
+    if st.button("🔍 Fetch Issues from Repo", type="primary", use_container_width=True):
+        if st.session_state.workflow_state != "fetching_issues":
+            st.session_state.workflow_state = "fetching_issues"
+            st.rerun()
+
+# ── Stage 1: Fetching Issues ──
+if st.session_state.workflow_state == "fetching_issues":
+    with st.spinner("Connecting to SonarQube & pulling latest repository anomalies..."):
+        try:
+            from mcp_servers.sonar_mcp import trigger_scan, get_scan_status, get_issues
+            from mcp_servers.github_mcp import setup_workspace
+            
+            setup_workspace(repo_url, branch)
+            trigger_scan(project_key, branch)
+            get_scan_status(project_key)
+            
+            issues = get_issues(project_key, branch)
+            files_to_fix = list(set([issue.get("file_path") for issue in issues if issue.get("file_path")]))
+            
+            st.session_state.fetched_issues = issues
+            st.session_state.fetched_files_to_fix = files_to_fix
+            st.session_state.workflow_state = "issues_fetched"
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error fetching issues: {str(e)}")
+            if st.button("Reset Dashboard"):
+                st.session_state.workflow_state = "idle"
+                st.rerun()
+
+# ── Stage 1.5: Issues Dashboard ──
+if st.session_state.workflow_state == "issues_fetched":
+    st.success("Target repository scanned successfully!")
+    issues = st.session_state.fetched_issues
+    st.markdown("### 📥 Repository Anomalies Detected")
+    
+    if not issues:
+        st.info("🎉 No open issues found in this repository! Your code is perfectly clean.")
+        if st.button("Return to Dashboard"):
+            st.session_state.workflow_state = "idle"
+            st.rerun()
+    else:
+        st.warning(f"Found {len(issues)} open issues across {len(st.session_state.fetched_files_to_fix)} files.")
+        
+        for idx, issue in enumerate(issues):
+            st.markdown(f"**{idx+1}. `{issue.get('file_path', 'Unknown')}`** (Line {issue.get('line', 'N/A')})")
+            st.caption(f"↳ {issue.get('message', 'No message')} `[{issue.get('rule', 'N/A')}]`")
+            
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🛠 Auto-Fix These Issues", type="primary"):
             st.session_state.workflow_state = "running"
             st.rerun()
 
-# ── Runner ──
+# ── Stage 2: Runner ──
 if st.session_state.workflow_state == "running":
-    st.info("🤖 Agent Swarm initialized. Evaluating repository anomalies...")
+    st.info("🤖 Agent Swarm initialized. Assigning Workers to auto-fix code...")
     
     graph = build_agent_graph()
     initial_state = {
@@ -97,7 +144,8 @@ if st.session_state.workflow_state == "running":
         "repo_url": repo_url,
         "iteration": 1,
         "fixes_applied": [],
-        "files_to_fix": []
+        "issues": st.session_state.get("fetched_issues", []),
+        "files_to_fix": st.session_state.get("fetched_files_to_fix", [])
     }
     
     try:
@@ -152,17 +200,6 @@ if st.session_state.workflow_state == "review" and st.session_state.final_report
         st.metric("Remaining Open Issues", report.get("remaining_issues", 0), delta="needs attention", delta_color="off")
         
     st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Explicitly list the originally fetched issues for transparency
-    original_issues = report.get("original_issues_fetched", [])
-    if original_issues:
-        with st.expander(f"📥 Original Anomalies Detected ({len(original_issues)})", expanded=False):
-            st.markdown("Here is the exact list of originally fetched issues that the Supervisor identified **before** launching the Worker swarm:")
-            for idx, issue in enumerate(original_issues):
-                st.markdown(f"**{idx+1}. `{issue.get('file_path', 'Unknown')}`** (Line {issue.get('line', 'N/A')})")
-                st.caption(f"↳ {issue.get('message', 'No message')} `[{issue.get('rule', 'N/A')}]`")
-
-        st.markdown("<br>", unsafe_allow_html=True)
     
     if "rejections" not in st.session_state:
         st.session_state.rejections = set()
@@ -225,10 +262,13 @@ if st.session_state.workflow_state == "review" and st.session_state.final_report
     col3, col4 = st.columns(2)
     with col3:
          if st.button("Finalize Contract & Push", type="primary", use_container_width=True):
-             st.info("Committing approved fixes to the remote branch...")
-             msg = commit_and_push(report["branch"], "chore(security): applied agent-negotiated fixes")
-             st.success(msg)
-             st.session_state.workflow_state = "idle"
+             with st.spinner("Committing approved fixes to the remote branch..."):
+                 msg = commit_and_push(report["branch"], "chore(security): applied agent-negotiated fixes")
+             
+             # Save repo_url so we can generate PR link later
+             report["repo_url"] = repo_url
+             st.session_state.workflow_state = "finalized"
+             st.rerun()
              
     with col4:
          if st.button("Abort Entire Contract", use_container_width=True):
@@ -237,3 +277,56 @@ if st.session_state.workflow_state == "review" and st.session_state.final_report
                  revert_file(fix["file_path"])
              st.session_state.workflow_state = "idle"
              st.rerun()
+             
+# ── Finalized Success View ──
+if st.session_state.workflow_state == "finalized":
+    report = st.session_state.final_report
+    st.success(f"🎉 Contract finalized! Swarm pushed fixes to remote branch: `{report['branch']}`")
+    
+    st.balloons()
+    st.markdown("### Next Steps")
+    
+    # Generate dynamic GitHub PR link (extracting username/repo from URL)
+    repo_url = report.get("repo_url", "")
+    if repo_url and "github.com" in repo_url:
+        clean_url = repo_url.replace(".git", "")
+        pr_link = f"{clean_url}/compare/main...{report['branch']}?expand=1"
+        st.info(f"👉 **[Click here to instantly open a Pull Request]({pr_link})** in GitHub and merge these fixes into your main branch.")
+    else:
+        st.info(f"Navigate to your repository and open a Pull Request for branch `{report['branch']}`.")
+        
+    # Generate Project Report Markdown
+    report_md = f"""# 🛡 Lumina Autonomous Correction Report
+
+**Generated on:** {time.strftime('%Y-%m-%d %H:%M:%S')}
+**Target Branch:** `{report['branch']}`
+**Repository:** {repo_url or 'Local'}
+
+## 📊 Summary Metrics
+- **Anomalies Processed:** {report.get('total_fixes_attempted', 0)}
+- **Surgical Refactors Applied:** {report.get('successful_fixes', 0)}
+- **Remaining Constraints Flagged:** {report.get('remaining_issues', 0)}
+
+## 🛠 Fix Manifest
+"""
+    for fix in report.get("fixes", []):
+        if fix.get("status") == "success":
+            flag = "⚠️ Flagged by Judge" if fix.get('flagged_by_judge') else "✅ Approved"
+            report_md += f"### {fix['file_path']} ({flag})\n"
+            report_md += f"> **Agent Rationale:** {fix.get('explanation', 'N/A')}\n\n"
+            if fix.get('flagged_by_judge'):
+                report_md += f"> **Judge Note:** {fix.get('judge_rationale', 'N/A')}\n\n"
+            
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.download_button(
+        label="📥 Download Structured Report (.md)",
+        data=report_md,
+        file_name=f"lumina_security_report_{int(time.time())}.md",
+        mime="text/markdown",
+        use_container_width=True
+    )
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("Start New Scan", use_container_width=True):
+        st.session_state.workflow_state = "idle"
+        st.rerun()

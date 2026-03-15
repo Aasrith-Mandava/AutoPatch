@@ -21,6 +21,18 @@ class JudgeResult(BaseModel):
 
 def supervisor_init(state: AgentState) -> Dict[str, Any]:
     """Sets up the workspace and runs the baseline scan."""
+    
+    # Fast path: if the UI already manually fetched issues, skip the setup and scan!
+    if state.get("issues") is not None and len(state.get("issues", [])) > 0:
+        print("supervisor_init: Fast path bypassed manual scan, issues already provided by Streamlit UI.")
+        return {
+            "issues": state["issues"],
+            "baseline_issues": state["issues"],
+            "files_to_fix": state.get("files_to_fix", []),
+            "iteration": 1,
+            "fixes_applied": []
+        }
+    
     print("supervisor_init: Setting up workspace and triggering scan...")
     
     # Initialize workspace structure
