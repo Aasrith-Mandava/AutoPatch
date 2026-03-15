@@ -48,7 +48,7 @@ with st.sidebar:
     
     project_key = st.text_input("SonarQube Project Key", value=config.SONAR_PROJECT_KEY, help="The exact project key from your Sonar dashboard.")
     branch = st.text_input("Target Branch", value="agent-sec-fixes", help="The git branch the agent will checkout and commit onto.")
-    repo_url = st.text_input("Repo URL", value="local", help="Leave as 'local' to use the configured PROJECT_PATH.")
+    repo_url = st.text_input("Repo URL", value="https://github.com/Aasrith-Mandava/sonar-project.git", help="The remote repository URL to clone and push against.")
     
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🚀 Start Agent Workflow", type="primary", use_container_width=True):
