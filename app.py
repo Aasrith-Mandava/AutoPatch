@@ -9,7 +9,38 @@ from sonar_agent.core import config
 from sonar_agent.workflow.graph import build_agent_graph
 from mcp_servers.github_mcp import revert_file, commit_and_push
 
-st.set_page_config(page_title="Lumina Agent UI", page_icon="🔍", layout="wide")
+st.set_page_config(page_title="AutoPatch Agent UI", page_icon="✨", layout="wide")
+
+st.markdown("""
+<style>
+    /* Center Main Title */
+    .title-container {
+        text-align: center;
+        padding-top: 1rem;
+        padding-bottom: 2rem;
+    }
+    .title-container h1 {
+        font-size: 3rem;
+        margin-bottom: 0px;
+    }
+    .title-container p {
+        color: #888888;
+        font-size: 1.1rem;
+    }
+    /* Tidy up Metric Cards */
+    div[data-testid="metric-container"] {
+        background-color: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 5% 5% 5% 10%;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    /* Rounded buttons */
+    .stButton>button {
+        border-radius: 8px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Initialize session state for the workflow
 if "workflow_state" not in st.session_state:
@@ -38,8 +69,12 @@ def get_diff(file_path: str) -> tuple[str, str]:
     return original_content, current_content
 
 
-st.title("✨ Lumina: Code Correction Agent")
-st.markdown("This Elicitation UI reviews changes proposed by the **LangGraph Swarm** before committing them safely into your branch.")
+st.markdown("""
+<div class="title-container">
+    <h1>✨ AutoPatch: Code Correction Agent</h1>
+    <p>This Elicitation UI reviews changes proposed by the <b>LangGraph Swarm</b> before committing them safely into your branch.</p>
+</div>
+""", unsafe_allow_html=True)
 st.divider()
 
 # Sidebar setup
@@ -296,7 +331,7 @@ if st.session_state.workflow_state == "finalized":
         st.info(f"Navigate to your repository and open a Pull Request for branch `{report['branch']}`.")
         
     # Generate Project Report Markdown
-    report_md = f"""# 🛡 Lumina Autonomous Correction Report
+    report_md = f"""# 🛡 AutoPatch Autonomous Correction Report
 
 **Generated on:** {time.strftime('%Y-%m-%d %H:%M:%S')}
 **Target Branch:** `{report['branch']}`
@@ -321,7 +356,7 @@ if st.session_state.workflow_state == "finalized":
     st.download_button(
         label="📥 Download Structured Report (.md)",
         data=report_md,
-        file_name=f"lumina_security_report_{int(time.time())}.md",
+        file_name=f"autopatch_security_report_{int(time.time())}.md",
         mime="text/markdown",
         use_container_width=True
     )
