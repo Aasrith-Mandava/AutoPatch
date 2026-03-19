@@ -157,14 +157,36 @@ if st.session_state.workflow_state == "issues_fetched":
             st.session_state.workflow_state = "idle"
             st.rerun()
     else:
-        st.warning(f"Found {len(issues)} open issues across {len(st.session_state.fetched_files_to_fix)} files.")
+        # Summary metrics
+        m1, m2 = st.columns(2)
+        with m1:
+            st.metric("Total Issues Found", len(issues))
+        with m2:
+            st.metric("Files Affected", len(st.session_state.fetched_files_to_fix))
         
-        for idx, issue in enumerate(issues):
-            st.markdown(f"**{idx+1}. `{issue.get('file_path', 'Unknown')}`** (Line {issue.get('line', 'N/A')})")
-            st.caption(f"↳ {issue.get('message', 'No message')} `[{issue.get('rule', 'N/A')}]`")
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Group issues by file for a cleaner view
+        from collections import defaultdict
+        issues_by_file = defaultdict(list)
+        for issue in issues:
+            issues_by_file[issue.get('file_path', 'Unknown')].append(issue)
+        
+        for file_path, file_issues in issues_by_file.items():
+            with st.expander(f"📄 `{file_path}` — {len(file_issues)} issue(s)", expanded=True):
+                for issue in file_issues:
+                    severity = issue.get('severity', 'UNKNOWN').upper()
+                    severity_colors = {'CRITICAL': '🔴', 'BLOCKER': '🔴', 'MAJOR': '🟠', 'MINOR': '🟡', 'INFO': '🔵'}
+                    icon = severity_colors.get(severity, '⚪')
+                    
+                    st.markdown(f"""
+{icon} **Line {issue.get('line', 'N/A')}** · `{issue.get('rule', 'N/A')}` · {severity}  
+> {issue.get('message', 'No message')}
+""", unsafe_allow_html=True)
+                    st.markdown("---")
             
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🛠 Auto-Fix These Issues", type="primary"):
+        if st.button("🛠 Auto-Fix These Issues", type="primary", use_container_width=True):
             st.session_state.workflow_state = "running"
             st.rerun()
 
@@ -258,20 +280,51 @@ if st.session_state.workflow_state == "review" and st.session_state.final_report
             label_suffix = "✅ (Pending Approval)"
             
         # We auto-expand flagged items or pending items
-        with st.expander(f"Review Fix: {file_path} {label_suffix}", expanded=(not is_rejected) or flagged):
-            
-            # Structured Fix Explanation
-            st.markdown(f"**🔧 What was the fix?**<br>{fix.get('fix_summary', 'Fixed SonarQube rule.')}", unsafe_allow_html=True)
-            st.markdown(f"**🔄 What was it replaced with?**<br>{fix.get('replaced_with', 'N/A')}", unsafe_allow_html=True)
-            st.markdown(f"**📈 What is the benefit?**<br>{fix.get('benefit', 'N/A')}", unsafe_allow_html=True)
-            st.markdown("<br>", unsafe_allow_html=True)
+        with st.expander(f"📝 {file_path} {label_suffix}", expanded=(not is_rejected) or flagged):
             
             if flagged:
-                st.warning(f"**Judge Warning:** {fix.get('judge_rationale', 'Core business logic may have been altered.')}")
+                st.warning(f"**⚠️ Judge Warning:** {fix.get('judge_rationale', 'Core business logic may have been altered.')}")
             
+            # Render each individual fix detail
+            fix_details = fix.get('fix_details', [])
+            if fix_details:
+                for i, fd in enumerate(fix_details):
+                    severity_colors = {'Bug': '🔴', 'Vulnerability': '🔴', 'Code Smell': '🟡', 'Security Hotspot': '🟠'}
+                    sev_icon = severity_colors.get(fd.get('severity', ''), '⚪')
+                    
+                    st.markdown(f"#### {sev_icon} Fix {i+1}: {fd.get('issue_title', 'Untitled')}")
+                    st.caption(f"Rule: `{fd.get('rule_id', 'N/A')}` · Severity: **{fd.get('severity', 'N/A')}**")
+                    
+                    # Root Cause
+                    st.markdown("**🔍 Root Cause**")
+                    st.info(fd.get('root_cause', 'N/A'))
+                    
+                    # Before / After Code Snippets
+                    col_before, col_after = st.columns(2)
+                    with col_before:
+                        st.markdown("**❌ Before (Problematic)**")
+                        st.code(fd.get('original_snippet', ''), language='python')
+                    with col_after:
+                        st.markdown("**✅ After (Fixed)**")
+                        st.code(fd.get('fixed_snippet', ''), language='python')
+                    
+                    # What Changed
+                    st.markdown("**🔄 What Changed**")
+                    st.markdown(fd.get('what_changed', 'N/A'))
+                    
+                    # Benefit
+                    st.markdown("**📈 Benefit**")
+                    st.success(fd.get('benefit', 'N/A'))
+                    
+                    if i < len(fix_details) - 1:
+                        st.markdown("---")
+            else:
+                st.info("No detailed fix information available.")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # Full File Diff
             orig, updated = get_diff(file_path)
-            
-            # Generate Unified Diff
             diff = list(difflib.unified_diff(
                 orig.splitlines(),
                 updated.splitlines(),
@@ -281,16 +334,16 @@ if st.session_state.workflow_state == "review" and st.session_state.final_report
             ))
             diff_text = '\n'.join(diff)
             
-            st.markdown("**📄 Unified Git-Style Diff**")
-            st.caption("Lines starting with `-` were removed, lines with `+` were added by the Agent.")
-            if diff_text:
-                st.code(diff_text, language="diff", line_numbers=True)
-            else:
-                st.info("No content changes detected in the file.")
+            with st.expander("📄 View Full Unified Diff", expanded=False):
+                st.caption("Lines starting with `-` were removed, lines with `+` were added by the Agent.")
+                if diff_text:
+                    st.code(diff_text, language="diff", line_numbers=True)
+                else:
+                    st.info("No content changes detected in the file.")
                 
             if not is_rejected:
                 if st.button(f"Reject Fix for {file_path}", key=f"reject_{file_path}"):
-                    msg = revert_file(file_path) # Call underlying GitHub MCP
+                    msg = revert_file(file_path)
                     st.toast(msg)
                     st.session_state.rejections.add(file_path)
                     st.rerun()
@@ -352,12 +405,19 @@ if st.session_state.workflow_state == "finalized":
     for fix in report.get("fixes", []):
         if fix.get("status") == "success":
             flag = "⚠️ Flagged by Judge" if fix.get('flagged_by_judge') else "✅ Approved"
-            report_md += f"### {fix['file_path']} ({flag})\n"
-            report_md += f"> **🔧 What was the fix?** {fix.get('fix_summary', 'N/A')}\n"
-            report_md += f"> **🔄 What was it replaced with?** {fix.get('replaced_with', 'N/A')}\n"
-            report_md += f"> **📈 What is the benefit?** {fix.get('benefit', 'N/A')}\n\n"
+            report_md += f"### {fix['file_path']} ({flag})\n\n"
+            
+            for fd in fix.get('fix_details', []):
+                report_md += f"#### {fd.get('issue_title', 'Untitled')} (`{fd.get('rule_id', 'N/A')}` · {fd.get('severity', 'N/A')})\n\n"
+                report_md += f"**🔍 Root Cause:** {fd.get('root_cause', 'N/A')}\n\n"
+                report_md += f"**❌ Before:**\n```\n{fd.get('original_snippet', '')}\n```\n\n"
+                report_md += f"**✅ After:**\n```\n{fd.get('fixed_snippet', '')}\n```\n\n"
+                report_md += f"**🔄 What Changed:** {fd.get('what_changed', 'N/A')}\n\n"
+                report_md += f"**📈 Benefit:** {fd.get('benefit', 'N/A')}\n\n"
+                report_md += "---\n\n"
+            
             if fix.get('flagged_by_judge'):
-                report_md += f"> **Judge Note:** {fix.get('judge_rationale', 'N/A')}\n\n"
+                report_md += f"> **⚠️ Judge Note:** {fix.get('judge_rationale', 'N/A')}\n\n"
             
     st.markdown("<br>", unsafe_allow_html=True)
     st.download_button(

@@ -9,11 +9,20 @@ from sonar_agent.workflow.state import AgentState, WorkerState
 from sonar_agent.workflow.llm_factory import get_langchain_llm
 
 
+class FixDetail(BaseModel):
+    rule_id: str = Field(description="The SonarQube rule ID (e.g. javascript:S3504).")
+    issue_title: str = Field(description="Short one-line title of the issue (e.g. 'Unexpected var usage').")
+    severity: str = Field(description="One of: Bug, Vulnerability, Code Smell, Security Hotspot.")
+    root_cause: str = Field(description="2-3 sentence explanation of WHY this code pattern is problematic. Explain the underlying computer science or security concept to educate the developer.")
+    original_snippet: str = Field(description="The exact problematic code snippet that was changed (just the relevant lines, not the whole file).")
+    fixed_snippet: str = Field(description="The exact replacement code snippet after the fix (just the relevant lines).")
+    what_changed: str = Field(description="A clear, plain-English explanation of WHAT was changed and WHY.")
+    benefit: str = Field(description="The concrete security, performance, or maintainability benefit gained by this fix.")
+
+
 class RefactoredCode(BaseModel):
     new_content: str = Field(description="The full, complete, and refactored content of the file. No truncation.")
-    fix_summary: str = Field(description="Summarize what was the specific fix applied.")
-    replaced_with: str = Field(description="Describe specifically what code snippet you removed and what you replaced it with.")
-    benefit: str = Field(description="Explain what is the security or maintainability benefit of replacing it.")
+    fixes: list[FixDetail] = Field(description="A list of every individual fix applied to this file, each with full detail.")
 
 
 class JudgeResult(BaseModel):
@@ -84,6 +93,13 @@ def worker_refactor(state: WorkerState) -> Dict[str, Any]:
 You need to fix the following SonarQube issues in the provided file.
 CRITICAL: Do not alter the business logic or remove existing features. Only apply the surgical fixes necessary to satisfy the rules.
 
+For EACH fix you apply, provide a detailed explanation including:
+- The root cause: WHY is this code pattern problematic? Explain the underlying CS/security concept.
+- The exact original snippet that was problematic.
+- The exact fixed snippet you replaced it with.
+- A clear explanation of what changed and why.
+- The concrete benefit (security, performance, maintainability).
+
 Issues:
 {rules_text}
 
@@ -125,9 +141,7 @@ Refactored Code:
             "fixes_applied": [{
                 "file_path": state["file_path"],
                 "status": "success",
-                "fix_summary": response.fix_summary,
-                "replaced_with": response.replaced_with,
-                "benefit": response.benefit,
+                "fix_details": [fd.model_dump() for fd in response.fixes],
                 "iteration_applied": state["iteration"],
                 "flagged_by_judge": flagged,
                 "judge_rationale": judge_response.rationale
