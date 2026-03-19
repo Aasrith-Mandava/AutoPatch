@@ -259,7 +259,12 @@ if st.session_state.workflow_state == "review" and st.session_state.final_report
             
         # We auto-expand flagged items or pending items
         with st.expander(f"Review Fix: {file_path} {label_suffix}", expanded=(not is_rejected) or flagged):
-            st.markdown(f"**Agent's Rationale:** {fix.get('explanation', 'Fixed SonarQube rules.')}")
+            
+            # Structured Fix Explanation
+            st.markdown(f"**🔧 What was the fix?**<br>{fix.get('fix_summary', 'Fixed SonarQube rule.')}", unsafe_allow_html=True)
+            st.markdown(f"**🔄 What was it replaced with?**<br>{fix.get('replaced_with', 'N/A')}", unsafe_allow_html=True)
+            st.markdown(f"**📈 What is the benefit?**<br>{fix.get('benefit', 'N/A')}", unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
             
             if flagged:
                 st.warning(f"**Judge Warning:** {fix.get('judge_rationale', 'Core business logic may have been altered.')}")
@@ -348,7 +353,9 @@ if st.session_state.workflow_state == "finalized":
         if fix.get("status") == "success":
             flag = "⚠️ Flagged by Judge" if fix.get('flagged_by_judge') else "✅ Approved"
             report_md += f"### {fix['file_path']} ({flag})\n"
-            report_md += f"> **Agent Rationale:** {fix.get('explanation', 'N/A')}\n\n"
+            report_md += f"> **🔧 What was the fix?** {fix.get('fix_summary', 'N/A')}\n"
+            report_md += f"> **🔄 What was it replaced with?** {fix.get('replaced_with', 'N/A')}\n"
+            report_md += f"> **📈 What is the benefit?** {fix.get('benefit', 'N/A')}\n\n"
             if fix.get('flagged_by_judge'):
                 report_md += f"> **Judge Note:** {fix.get('judge_rationale', 'N/A')}\n\n"
             

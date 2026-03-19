@@ -11,7 +11,9 @@ from sonar_agent.workflow.llm_factory import get_langchain_llm
 
 class RefactoredCode(BaseModel):
     new_content: str = Field(description="The full, complete, and refactored content of the file. No truncation.")
-    explanation: str = Field(description="Explanation of what was changed and why.")
+    fix_summary: str = Field(description="Summarize what was the specific fix applied.")
+    replaced_with: str = Field(description="Describe specifically what code snippet you removed and what you replaced it with.")
+    benefit: str = Field(description="Explain what is the security or maintainability benefit of replacing it.")
 
 
 class JudgeResult(BaseModel):
@@ -123,7 +125,9 @@ Refactored Code:
             "fixes_applied": [{
                 "file_path": state["file_path"],
                 "status": "success",
-                "explanation": response.explanation,
+                "fix_summary": response.fix_summary,
+                "replaced_with": response.replaced_with,
+                "benefit": response.benefit,
                 "iteration_applied": state["iteration"],
                 "flagged_by_judge": flagged,
                 "judge_rationale": judge_response.rationale
