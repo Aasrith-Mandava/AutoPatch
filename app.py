@@ -125,8 +125,9 @@ with st.sidebar:
 if st.session_state.workflow_state == "fetching_issues":
     with st.spinner("Connecting to SonarQube & pulling latest repository anomalies..."):
         try:
-            from mcp_servers.sonar_mcp import trigger_scan, get_scan_status, get_issues
+            from mcp_servers.sonar_mcp import trigger_scan, get_scan_status, get_issues, get_rule_details
             from mcp_servers.github_mcp import setup_workspace
+            import re
             
             setup_workspace(repo_url, branch)
             trigger_scan(project_key, branch)
@@ -135,8 +136,27 @@ if st.session_state.workflow_state == "fetching_issues":
             issues = get_issues(project_key, branch)
             files_to_fix = list(set([issue.get("file_path") for issue in issues if issue.get("file_path")]))
             
+            # Pre-fetch rule details for every unique rule (so we can explain each issue in depth)
+            unique_rules = set(issue.get("rule", "") for issue in issues if issue.get("rule"))
+            rule_cache = {}
+            for rule_key in unique_rules:
+                try:
+                    details = get_rule_details(rule_key)
+                    # Strip HTML tags from the description for clean display
+                    html_desc = details.get("htmlDesc", "")
+                    clean_desc = re.sub(r'<[^>]+>', '', html_desc) if html_desc else "No description available."
+                    rule_cache[rule_key] = {
+                        "name": details.get("name", rule_key),
+                        "description": clean_desc,
+                        "severity": details.get("severity", "UNKNOWN"),
+                        "type": details.get("type", "UNKNOWN"),
+                    }
+                except Exception:
+                    rule_cache[rule_key] = {"name": rule_key, "description": "Rule documentation unavailable.", "severity": "UNKNOWN", "type": "UNKNOWN"}
+            
             st.session_state.fetched_issues = issues
             st.session_state.fetched_files_to_fix = files_to_fix
+            st.session_state.rule_cache = rule_cache
             st.session_state.workflow_state = "issues_fetched"
             st.rerun()
         except Exception as e:
@@ -149,6 +169,7 @@ if st.session_state.workflow_state == "fetching_issues":
 if st.session_state.workflow_state == "issues_fetched":
     st.success("Target repository scanned successfully!")
     issues = st.session_state.fetched_issues
+    rule_cache = st.session_state.get("rule_cache", {})
     st.markdown("### 📥 Repository Anomalies Detected")
     
     if not issues:
@@ -158,15 +179,19 @@ if st.session_state.workflow_state == "issues_fetched":
             st.rerun()
     else:
         # Summary metrics
-        m1, m2 = st.columns(2)
+        m1, m2, m3 = st.columns(3)
         with m1:
             st.metric("Total Issues Found", len(issues))
         with m2:
             st.metric("Files Affected", len(st.session_state.fetched_files_to_fix))
+        with m3:
+            # Count by severity
+            critical_count = sum(1 for i in issues if i.get('severity', '').upper() in ('CRITICAL', 'BLOCKER'))
+            st.metric("Critical / Blocker", critical_count, delta="high priority" if critical_count > 0 else "none", delta_color="inverse" if critical_count > 0 else "off")
         
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # Group issues by file for a cleaner view
+        # Group issues by file
         from collections import defaultdict
         issues_by_file = defaultdict(list)
         for issue in issues:
@@ -179,10 +204,33 @@ if st.session_state.workflow_state == "issues_fetched":
                     severity_colors = {'CRITICAL': '🔴', 'BLOCKER': '🔴', 'MAJOR': '🟠', 'MINOR': '🟡', 'INFO': '🔵'}
                     icon = severity_colors.get(severity, '⚪')
                     
+                    issue_type = issue.get('issue_type', 'UNKNOWN').replace('_', ' ').title()
+                    type_badges = {'Bug': '🐛', 'Vulnerability': '🔓', 'Code Smell': '🧹', 'Security Hotspot': '🔥'}
+                    type_icon = type_badges.get(issue_type, '📌')
+                    
+                    rule_key = issue.get('rule', 'N/A')
+                    rule_info = rule_cache.get(rule_key, {})
+                    rule_name = rule_info.get('name', rule_key)
+                    rule_desc = rule_info.get('description', 'No description available.')
+                    
+                    # Issue Header
                     st.markdown(f"""
-{icon} **Line {issue.get('line', 'N/A')}** · `{issue.get('rule', 'N/A')}` · {severity}  
-> {issue.get('message', 'No message')}
-""", unsafe_allow_html=True)
+#### {icon} {rule_name}
+**Line {issue.get('line', 'N/A')}** · `{rule_key}` · {type_icon} {issue_type} · **{severity}**
+""")
+                    # Issue Message (what SonarQube detected)
+                    st.error(f"**Issue:** {issue.get('message', 'No message')}")
+                    
+                    # Rule Explanation (from SonarQube documentation)
+                    # Truncate very long descriptions for readability
+                    desc_text = rule_desc[:500] + "..." if len(rule_desc) > 500 else rule_desc
+                    st.info(f"**Why is this a problem?**\n\n{desc_text}")
+                    
+                    # Effort estimate
+                    effort = issue.get('effort', None)
+                    if effort:
+                        st.caption(f"⏱ Estimated effort to fix: **{effort}**")
+                    
                     st.markdown("---")
             
         st.markdown("<br>", unsafe_allow_html=True)
