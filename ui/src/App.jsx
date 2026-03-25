@@ -43,9 +43,10 @@ function App() {
     if (!githubUser) return
     setLoading(true); setError(null)
     try {
-      const res = await fetch(`${API}/api/repos/${githubUser}`)
-      if (!res.ok) throw new Error('Could not fetch repos')
-      setRepos(await res.json())
+      const res = await fetch(`https://api.github.com/users/${githubUser}/repos?sort=updated&per_page=100`)
+      if (!res.ok) throw new Error('Could not fetch repos. Check the username.')
+      const data = await res.json()
+      setRepos(data.map(r => ({ name: r.name, html_url: r.html_url, description: r.description || '', language: r.language || '' })))
     } catch (e) { setError(e.message) }
     setLoading(false)
   }
