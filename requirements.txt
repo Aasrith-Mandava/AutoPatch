@@ -14,6 +14,10 @@ langchain-openai>=0.2.0
 # Frontend UI
 streamlit>=1.32.0
 
+# API Backend (for React UI)
+fastapi>=0.110.0
+uvicorn>=0.27.0
+
 # LLM providers (install the ones you want to use)
 google-genai>=0.1.0          # Gemini — 6 model variants
 openai>=1.0.0                # OpenAI — 7 model variants (optional)
