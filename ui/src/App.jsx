@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import './index.css'
 
-const API = 'http://localhost:8000'
+const API = ''
 
 function App() {
   const [stage, setStage] = useState('idle')
