@@ -8,7 +8,7 @@ echo ""
 # Start FastAPI backend in background
 echo "🔧 Starting API backend (port 8000)..."
 cd "$(dirname "$0")"
-python api.py &
+python3 api.py &
 BACKEND_PID=$!
 
 # Wait a moment for backend to boot

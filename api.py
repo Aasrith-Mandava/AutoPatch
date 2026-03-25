@@ -48,6 +48,13 @@ class ScanRequest(BaseModel):
     repo_url: str = ""
 
 
+class FixFileRequest(BaseModel):
+    project_key: str
+    branch: str = "agent-sec-fixes"
+    repo_url: str = ""
+    file_path: str
+
+
 class RejectRequest(BaseModel):
     file_path: str
 
@@ -193,6 +200,60 @@ def run_fix(req: ScanRequest):
             yield f"data: {json.dumps({'node': 'error', 'status': 'error', 'message': str(e)})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.post("/api/fix-file")
+def fix_single_file(req: FixFileRequest):
+    """Run the LangGraph agent on a single file and return the result."""
+    # Filter issues to only the target file
+    file_issues = [i for i in _store["issues"] if i.get("file_path") == req.file_path]
+    if not file_issues:
+        raise HTTPException(status_code=404, detail=f"No issues found for {req.file_path}")
+
+    graph = build_agent_graph()
+    initial_state = {
+        "project_key": req.project_key,
+        "branch": req.branch,
+        "repo_url": req.repo_url,
+        "iteration": 1,
+        "fixes_applied": [],
+        "issues": file_issues,
+        "files_to_fix": [req.file_path],
+    }
+
+    try:
+        result = graph.invoke(initial_state)
+        report = result.get("final_report", {})
+
+        # Merge into the main store report
+        if not _store["final_report"]:
+            _store["final_report"] = {"fixes": [], "total_fixes_attempted": 0, "successful_fixes": 0, "remaining_issues": 0}
+
+        for fix in report.get("fixes", []):
+            # Remove any previous fix for this file
+            _store["final_report"]["fixes"] = [f for f in _store["final_report"]["fixes"] if f.get("file_path") != req.file_path]
+            _store["final_report"]["fixes"].append(fix)
+
+        # Attach diff to the fix
+        fix_result = None
+        for fix in report.get("fixes", []):
+            if fix.get("file_path") == req.file_path and fix.get("status") == "success":
+                fix["diff_data"] = _get_diff(req.file_path)
+                fix_result = fix
+                break
+
+        return {
+            "status": "success",
+            "file_path": req.file_path,
+            "fix": fix_result,
+            "report": report,
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "file_path": req.file_path,
+            "message": str(e),
+        }
 
 
 @app.get("/api/report")

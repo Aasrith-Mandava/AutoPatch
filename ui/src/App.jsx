@@ -22,6 +22,10 @@ function App() {
   const [rejections, setRejections] = useState(new Set())
   const [finalizeResult, setFinalizeResult] = useState(null)
 
+  // Per-file fixing
+  const [fixingFiles, setFixingFiles] = useState(new Set())
+  const [fileFixes, setFileFixes] = useState({})
+
   // Progress
   const [progress, setProgress] = useState(0)
   const [progressSteps, setProgressSteps] = useState([])
@@ -99,6 +103,25 @@ function App() {
     } catch (e) { setError(e.message); setStage('issues') }
   }
 
+  // ── Fix Single File ──
+  const fixSingleFile = async (filePath) => {
+    setFixingFiles(prev => new Set([...prev, filePath]))
+    try {
+      const res = await fetch(`${API}/api/fix-file`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_key: projectKey, branch, repo_url: repoUrl, file_path: filePath }),
+      })
+      const data = await res.json()
+      if (data.status === 'success' && data.fix) {
+        setFileFixes(prev => ({ ...prev, [filePath]: data.fix }))
+      } else {
+        setError(data.message || 'Fix failed for ' + filePath)
+      }
+    } catch (e) { setError(e.message) }
+    setFixingFiles(prev => { const n = new Set(prev); n.delete(filePath); return n })
+  }
+
   const rejectFix = async (filePath) => {
     try {
       await fetch(`${API}/api/reject`, {
@@ -132,6 +155,7 @@ function App() {
     setStage('idle'); setIssues([]); setFilesToFix([]); setRuleCache({})
     setReport(null); setRejections(new Set()); setFinalizeResult(null)
     setProgress(0); setProgressSteps([]); setError(null)
+    setFixingFiles(new Set()); setFileFixes({})
   }
 
   // ── Helpers ──
@@ -305,7 +329,9 @@ function App() {
 
               {Object.entries(groupByFile()).map(([fp, fi], idx) => (
                 <FileGroup key={fp} filePath={fp} issues={fi} ruleCache={ruleCache}
-                  sevBadge={sevBadge} typeIcon={typeIcon} delay={idx * 80} />
+                  sevBadge={sevBadge} typeIcon={typeIcon} delay={idx * 80}
+                  isFixing={fixingFiles.has(fp)} fixResult={fileFixes[fp]}
+                  onFixFile={() => fixSingleFile(fp)} />
               ))}
 
               <div style={{ marginTop: '2rem' }}>
@@ -407,24 +433,72 @@ function App() {
 
 // ═══════════════════ SUB-COMPONENTS ═══════════════════
 
-function FileGroup({ filePath, issues, ruleCache, sevBadge, typeIcon, delay }) {
+function FileGroup({ filePath, issues, ruleCache, sevBadge, typeIcon, delay, isFixing, fixResult, onFixFile }) {
   const [open, setOpen] = useState(true)
 
   return (
     <div className="file-group slide-in" style={{ animationDelay: `${delay}ms` }}>
       <div className="file-group-header" onClick={() => setOpen(!open)}>
-        <span className="file-icon">📄</span>
+        <span className="file-icon">{fixResult ? '✅' : '📄'}</span>
         <span className="file-name">{filePath}</span>
         <span className="issue-count">{issues.length} issue{issues.length !== 1 ? 's' : ''}</span>
+        {!fixResult && !isFixing && (
+          <button className="btn btn-primary btn-sm" style={{ width: 'auto', padding: '5px 14px', fontSize: '0.72rem' }}
+            onClick={e => { e.stopPropagation(); onFixFile() }}>🛠 Fix</button>
+        )}
+        {isFixing && <span className="badge badge-major" style={{ animation: 'pulse 1.5s infinite' }}>⏳ Fixing...</span>}
+        {fixResult && <span className="badge badge-approved">✓ Fixed</span>}
         <span className="chevron">{open ? '▼' : '▶'}</span>
       </div>
       {open && (
         <div className="file-group-body">
+          {/* Show inline fix result if available */}
+          {fixResult && (
+            <div className="fix-card" style={{ marginBottom: '0.75rem' }}>
+              <div style={{ padding: '1rem 1.25rem', background: 'var(--green-bg)', border: '1px solid var(--green-border)', borderRadius: 'var(--radius-sm)' }}>
+                <strong style={{ color: 'var(--green)' }}>✅ Fix applied successfully</strong>
+              </div>
+              <div className="fix-card-body">
+                {(fixResult.fix_details || []).map((fd, i) => (
+                  <div key={i} className="fix-detail">
+                    <div className="fix-detail-title">
+                      <span className={`badge badge-${(fd.severity || '').toLowerCase()}`}>{fd.severity}</span>
+                      {fd.issue_title}
+                      <code style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>{fd.rule_id}</code>
+                    </div>
+                    <div className="fix-section">
+                      <div className="fix-section-label">🔍 Root Cause</div>
+                      <div className="fix-section-content fix-root-cause">{fd.root_cause}</div>
+                    </div>
+                    <div className="snippets-grid">
+                      <div className="snippet-box before">
+                        <div className="snippet-label">❌ Before</div>
+                        <pre>{fd.original_snippet}</pre>
+                      </div>
+                      <div className="snippet-box after">
+                        <div className="snippet-label">✅ After</div>
+                        <pre>{fd.fixed_snippet}</pre>
+                      </div>
+                    </div>
+                    <div className="fix-section" style={{ marginTop: '1rem' }}>
+                      <div className="fix-section-label">🔄 What Changed</div>
+                      <div className="fix-section-content fix-what-changed">{fd.what_changed}</div>
+                    </div>
+                    <div className="fix-section">
+                      <div className="fix-section-label">📈 Benefit</div>
+                      <div className="fix-section-content fix-benefit">{fd.benefit}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {issues.map((issue, i) => {
             const rule = ruleCache[issue.rule] || {}
             const it = (issue.issue_type || '').replace('_', ' ')
             return (
-              <div key={i} className="issue-card">
+              <div key={i} className="issue-card" style={fixResult ? { opacity: 0.5 } : {}}>
                 <div className="issue-header">
                   <span className={`badge badge-${sevBadge(issue.severity)}`}>{(issue.severity || '?').toUpperCase()}</span>
                   <span className={`badge badge-${(issue.issue_type || '').toLowerCase()}`}>{typeIcon(issue.issue_type)} {it}</span>
