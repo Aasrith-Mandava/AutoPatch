@@ -178,19 +178,7 @@ function App() {
             </div>
           </div>
 
-          <div className="sidebar-section-label">Project Configuration</div>
-
-          <div className="form-group">
-            <label>SonarQube Project Key</label>
-            <input placeholder="e.g. my-project" value={projectKey} onChange={e => setProjectKey(e.target.value)} />
-          </div>
-
-          <div className="form-group">
-            <label>Target Branch</label>
-            <input value={branch} onChange={e => setBranch(e.target.value)} />
-          </div>
-
-          <div className="sidebar-section-label" style={{ marginTop: '0.75rem' }}>GitHub Integration</div>
+          <div className="sidebar-section-label">GitHub Integration</div>
 
           <div className="form-group">
             <label>GitHub Username</label>
@@ -215,6 +203,18 @@ function App() {
           <button className="btn btn-ghost" onClick={fetchRepos} disabled={!githubUser || loading}>
             {loading ? '⏳' : '🔍'} Fetch Repos
           </button>
+
+          <div className="sidebar-section-label" style={{ marginTop: '0.75rem' }}>Project Configuration</div>
+
+          <div className="form-group">
+            <label>SonarQube Project Key</label>
+            <input placeholder="e.g. my-project" value={projectKey} onChange={e => setProjectKey(e.target.value)} />
+          </div>
+
+          <div className="form-group">
+            <label>Target Branch</label>
+            <input value={branch} onChange={e => setBranch(e.target.value)} />
+          </div>
 
           <div style={{ flex: 1 }} />
 
