@@ -142,9 +142,22 @@ if st.session_state.workflow_state == "fetching_issues":
             for rule_key in unique_rules:
                 try:
                     details = get_rule_details(rule_key)
-                    # Strip HTML tags from the description for clean display
                     html_desc = details.get("htmlDesc", "")
-                    clean_desc = re.sub(r'<[^>]+>', '', html_desc) if html_desc else "No description available."
+                    if not html_desc:
+                        sections = details.get("descriptionSections", [])
+                        for pkey in ["root_cause", "introduction", "how_to_fix"]:
+                            for s in sections:
+                                if s.get("key") == pkey and s.get("content"):
+                                    html_desc = s["content"]
+                                    break
+                            if html_desc:
+                                break
+                        if not html_desc:
+                            for s in sections:
+                                if s.get("content"):
+                                    html_desc = s["content"]
+                                    break
+                    clean_desc = re.sub(r'<[^>]+>', '', html_desc).strip() if html_desc else "No description available."
                     rule_cache[rule_key] = {
                         "name": details.get("name", rule_key),
                         "description": clean_desc,

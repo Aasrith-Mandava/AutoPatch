@@ -135,8 +135,29 @@ def scan_issues(req: ScanRequest):
     for rule_key in unique_rules:
         try:
             details = get_rule_details(rule_key)
+
+            # Newer SonarQube versions use descriptionSections instead of htmlDesc
             html_desc = details.get("htmlDesc", "")
-            clean_desc = re.sub(r'<[^>]+>', '', html_desc) if html_desc else "No description available."
+
+            if not html_desc:
+                sections = details.get("descriptionSections", [])
+                # Prefer root_cause > introduction > how_to_fix > any other section
+                section_priority = ["root_cause", "introduction", "how_to_fix"]
+                for key in section_priority:
+                    for s in sections:
+                        if s.get("key") == key and s.get("content"):
+                            html_desc = s["content"]
+                            break
+                    if html_desc:
+                        break
+                # Fallback: use the first section with content
+                if not html_desc:
+                    for s in sections:
+                        if s.get("content"):
+                            html_desc = s["content"]
+                            break
+
+            clean_desc = re.sub(r'<[^>]+>', '', html_desc).strip() if html_desc else "No description available."
             rule_cache[rule_key] = {
                 "name": details.get("name", rule_key),
                 "description": clean_desc,
