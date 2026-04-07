@@ -11,7 +11,7 @@ mcp = FastMCP("SonarQube Server")
 
 @mcp.tool()
 def trigger_scan(project_key: str, branch: str = "") -> str:
-    """Initiates a SonarQube scan on the local workspace."""
+    """Initiates a SonarQube/SonarCloud scan on the local workspace."""
     cmd = [
         "sonar-scanner",
         f"-Dsonar.projectKey={project_key}",
@@ -19,6 +19,9 @@ def trigger_scan(project_key: str, branch: str = "") -> str:
         f"-Dsonar.host.url={config.SONAR_HOST_URL}",
         f"-Dsonar.token={config.SONAR_TOKEN}",
     ]
+    # SonarCloud requires organization
+    if getattr(config, "SONAR_ORGANIZATION", ""):
+        cmd.append(f"-Dsonar.organization={config.SONAR_ORGANIZATION}")
     if branch:
          cmd.append(f"-Dsonar.branch.name={branch}")
 
@@ -44,10 +47,10 @@ def get_scan_status(project_key: str) -> str:
         return f"Error polling scan status: {str(e)}"
 
 @mcp.tool()
-def get_issues(project_key: str, branch: str = "") -> List[Dict[str, Any]]:
+def get_issues(project_key: str, branch: str | None = None) -> List[Dict[str, Any]]:
     """Returns a structured JSON list of open issues (file path, line number, rule violated)."""
     client = SonarClient(project_key=project_key)
-    issues = client.fetch_issues()
+    issues = client.fetch_issues(branch=branch)
     
     result = []
     for issue in issues:

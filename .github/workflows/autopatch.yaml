@@ -30,7 +30,11 @@ on:
         default: 'main'
         type: string
       sonar_project_key:
-        description: 'SonarQube project key'
+        description: 'SonarCloud project key'
+        required: true
+        type: string
+      sonar_organization:
+        description: 'SonarCloud organization key'
         required: true
         type: string
       max_iterations:
@@ -66,9 +70,9 @@ on:
         default: '3'
         type: string
     secrets:
-      SONAR_HOST_URL:
-        required: true
       SONAR_TOKEN:
+        required: true
+      SONAR_ORGANIZATION:
         required: true
       GROQ_API_KEY:
         required: true
@@ -81,8 +85,9 @@ permissions:
   actions: read
 
 env:
-  SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+  SONAR_HOST_URL: https://sonarcloud.io
   SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  SONAR_ORGANIZATION: ${{ inputs.sonar_organization || secrets.SONAR_ORGANIZATION }}
   GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

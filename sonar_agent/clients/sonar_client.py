@@ -1,7 +1,8 @@
 """
-SonarQube REST API client.
+SonarQube / SonarCloud REST API client.
 
 Handles authentication, pagination, and issue fetching.
+Supports both self-hosted SonarQube and SonarCloud.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from sonar_agent.core.models import SonarIssue, Severity
 
 
 class SonarClient:
-    """Lightweight wrapper around the SonarQube Web API."""
+    """Lightweight wrapper around the SonarQube / SonarCloud Web API."""
 
     # Statuses we care about when looking for "open" issues
     OPEN_STATUSES = "OPEN,CONFIRMED,REOPENED"
@@ -25,12 +26,23 @@ class SonarClient:
         host_url: str | None = None,
         token: str | None = None,
         project_key: str | None = None,
+        organization: str | None = None,
     ) -> None:
         self.host_url = (host_url or config.SONAR_HOST_URL).rstrip("/")
         self.token = token or config.SONAR_TOKEN
         self.project_key = project_key or config.SONAR_PROJECT_KEY
+        self.organization = organization or getattr(config, "SONAR_ORGANIZATION", "")
+
+        # Detect if we're talking to SonarCloud vs self-hosted
+        self.is_sonarcloud = "sonarcloud.io" in self.host_url
+
         self._session = requests.Session()
-        self._session.auth = (self.token, "")  # Token-based auth (user=token, pass="")
+        if self.is_sonarcloud:
+            # SonarCloud uses Bearer token auth
+            self._session.headers["Authorization"] = f"Bearer {self.token}"
+        else:
+            # Self-hosted SonarQube uses basic auth (token as username)
+            self._session.auth = (self.token, "")
 
     # ── health ───────────────────────────────────────────────────────────
 
@@ -46,6 +58,7 @@ class SonarClient:
         statuses: str | None = None,
         severities: str | None = None,
         types: str | None = None,
+        branch: str | None = None,
         page_size: int = 100,
     ) -> list[SonarIssue]:
         """
@@ -65,10 +78,15 @@ class SonarClient:
                 "ps": page_size,
                 "p": page,
             }
+            # SonarCloud requires organization on most endpoints
+            if self.organization:
+                params["organization"] = self.organization
             if severities:
                 params["severities"] = severities
             if types:
                 params["types"] = types
+            if branch:
+                params["branch"] = branch
 
             data = self._get("/api/issues/search", params=params)
             raw_issues = data.get("issues", [])
@@ -89,7 +107,10 @@ class SonarClient:
 
     def get_rule(self, rule_key: str) -> dict[str, Any]:
         """Fetch rule details (description, why it matters, etc.)."""
-        data = self._get("/api/rules/show", params={"key": rule_key})
+        params: dict[str, Any] = {"key": rule_key}
+        if self.organization:
+            params["organization"] = self.organization
+        data = self._get("/api/rules/show", params=params)
         return data.get("rule", {})
 
     def wait_for_analysis(self) -> None:

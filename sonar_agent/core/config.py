@@ -33,10 +33,11 @@ def _load_env() -> None:
 
 _load_env()
 
-# ── SonarQube connection ────────────────────────────────────────────────
-SONAR_HOST_URL: str = os.getenv("SONAR_HOST_URL", "http://localhost:9000").rstrip("/")
+# ── SonarQube / SonarCloud connection ───────────────────────────────────
+SONAR_HOST_URL: str = os.getenv("SONAR_HOST_URL", "https://sonarcloud.io").rstrip("/")
 SONAR_TOKEN: str = os.getenv("SONAR_TOKEN", "")
 SONAR_PROJECT_KEY: str = os.getenv("SONAR_PROJECT_KEY", "")
+SONAR_ORGANIZATION: str = os.getenv("SONAR_ORGANIZATION", "")  # Required for SonarCloud
 
 # ── Project paths ───────────────────────────────────────────────────────
 # In CI, default to GITHUB_WORKSPACE (the checkout directory)
