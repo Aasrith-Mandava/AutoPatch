@@ -2,6 +2,7 @@
 Configuration management for the SonarQube Code Correction Agent.
 
 Loads settings from .env file and validates required values.
+Supports both local (.env file) and CI/CD (environment variables) modes.
 """
 
 import os
@@ -10,16 +11,24 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
+# ── CI/CD Detection ─────────────────────────────────────────────────────
+# When running inside GitHub Actions (or other CI), env vars are injected
+# by the runner. We must NOT sys.exit if .env is missing.
+CI_MODE: bool = bool(os.getenv("CI") or os.getenv("GITHUB_ACTIONS"))
+
+
 def _load_env() -> None:
-    """Load .env file from the project root."""
+    """Load .env file from the project root (skipped in CI mode)."""
     env_path = Path(__file__).resolve().parent.parent.parent / ".env"
     if env_path.exists():
         load_dotenv(env_path)
-    else:
+    elif not CI_MODE:
         print(
             "[!] No .env file found. Copy .env.example to .env and fill in your values."
         )
         sys.exit(1)
+    else:
+        print("[CI] No .env file — using environment variables from CI runner.")
 
 
 _load_env()
@@ -30,7 +39,8 @@ SONAR_TOKEN: str = os.getenv("SONAR_TOKEN", "")
 SONAR_PROJECT_KEY: str = os.getenv("SONAR_PROJECT_KEY", "")
 
 # ── Project paths ───────────────────────────────────────────────────────
-PROJECT_PATH: str = os.getenv("PROJECT_PATH", "")
+# In CI, default to GITHUB_WORKSPACE (the checkout directory)
+PROJECT_PATH: str = os.getenv("PROJECT_PATH", "") or os.getenv("GITHUB_WORKSPACE", "")
 BACKUP_DIR: str = os.getenv("BACKUP_DIR", ".sonar-backups")
 
 # ── LLM providers (at least one API key required) ───────────────────────
@@ -40,6 +50,9 @@ ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+
+# ── GitHub integration ──────────────────────────────────────────────────
+GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")
 
 
 def _has_key(val: str) -> bool:

@@ -1,0 +1,151 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# AutoPatch — PR-Triggered Scan & Fix
+# ══════════════════════════════════════════════════════════════════════════════
+# This workflow fires when a PR is opened/updated on THIS repository.
+# It scans the PR branch for SonarQube issues and posts a comment with results.
+# If issues are found, it can optionally auto-fix them (push fix commits to PR).
+#
+# This is the "self-healing PR" workflow — developers push code, AutoPatch
+# detects issues and pushes fix commits directly to the same PR branch.
+# ══════════════════════════════════════════════════════════════════════════════
+
+name: 🔍 AutoPatch — PR Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main, develop]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: write
+
+env:
+  SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+jobs:
+  scan-and-report:
+    name: 🔍 Scan PR for Issues
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Don't run on AutoPatch's own fix PRs (avoid infinite loop)
+    if: |
+      !contains(github.head_ref, 'autopatch/') &&
+      !contains(github.event.pull_request.title, 'AutoPatch')
+
+    steps:
+      - name: 📦 Checkout PR Branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: 🐍 Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 📥 Install Dependencies
+        run: pip install -r requirements.txt
+
+      - name: 📡 Install SonarQube Scanner
+        run: |
+          SCANNER_VERSION="6.2.1.4610"
+          curl -sSLo /tmp/scanner.zip "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${SCANNER_VERSION}-linux-x64.zip"
+          unzip -q /tmp/scanner.zip -d /opt
+          ln -s /opt/sonar-scanner-${SCANNER_VERSION}-linux-x64/bin/sonar-scanner /usr/local/bin/sonar-scanner
+
+      # ── Scan Only (don't fix on PRs by default — just report) ──────────
+      - name: 🧠 Run AutoPatch Agent (Scan + Fix)
+        id: agent
+        env:
+          PROJECT_PATH: ${{ github.workspace }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python -m sonar_agent \
+            --project-key "${SONAR_PROJECT_KEY}" \
+            --branch "${{ github.head_ref }}" \
+            --repo-url "https://github.com/${{ github.repository }}.git" \
+            --max-iterations 2 \
+            --output-report autopatch-report.json \
+            --output-markdown autopatch-report.md \
+            --skip-verification-scan
+
+      # ── Commit fixes directly to the PR branch ────────────────────────
+      - name: 📝 Push Fix Commits to PR
+        if: steps.agent.outputs.has_fixes == 'true'
+        run: |
+          git config user.name "AutoPatch Bot"
+          git config user.email "autopatch[bot]@users.noreply.github.com"
+
+          git add -A
+          git diff --cached --quiet && echo "No changes" && exit 0
+
+          git commit -m "🛡️ autopatch: fix ${{ steps.agent.outputs.fixes_applied }} code quality issues
+
+          Auto-applied by AutoPatch AI Agent on PR #${{ github.event.pull_request.number }}"
+
+          git push origin HEAD:${{ github.head_ref }}
+
+      # ── Post PR Comment with Results ───────────────────────────────────
+      - name: 💬 Post PR Comment
+        if: always()
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: autopatch-report
+          path: autopatch-report.md
+
+      # ── Create Check Run ───────────────────────────────────────────────
+      - name: ✅ Report Check Status
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let report = {};
+            try {
+              report = JSON.parse(fs.readFileSync('autopatch-report.json', 'utf8'));
+            } catch (e) {
+              console.log('No report file found');
+            }
+
+            const issuesFound = report.original_issues_fetched?.length || 0;
+            const fixesApplied = (report.fixes || []).filter(f => f.status === 'success').length;
+            const remaining = report.remaining_issues || 0;
+
+            const conclusion = remaining === 0 ? 'success' : (fixesApplied > 0 ? 'neutral' : 'failure');
+            const title = remaining === 0
+              ? '✅ No code quality issues'
+              : `⚠️ ${remaining} issue${remaining !== 1 ? 's' : ''} remaining (${fixesApplied} fixed)`;
+
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: '🛡️ AutoPatch Code Quality',
+              head_sha: context.payload.pull_request.head.sha,
+              status: 'completed',
+              conclusion: conclusion,
+              output: {
+                title: title,
+                summary: `AutoPatch scanned this PR and found **${issuesFound}** issue${issuesFound !== 1 ? 's' : ''}.\n\n` +
+                  `- ✅ Fixed: **${fixesApplied}**\n` +
+                  `- ⚠️ Remaining: **${remaining}**`,
+              },
+            });
+
+      - name: 📊 Upload Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autopatch-pr-report-${{ github.event.pull_request.number }}
+          path: |
+            autopatch-report.json
+            autopatch-report.md
+          retention-days: 14

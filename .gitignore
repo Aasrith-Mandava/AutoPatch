@@ -7,6 +7,10 @@ __pycache__/
 # Backups created by the agent
 .sonar-backups/
 
+# AutoPatch reports (generated at runtime)
+autopatch-report.json
+autopatch-report.md
+
 # IDE
 .vscode/
 .idea/
